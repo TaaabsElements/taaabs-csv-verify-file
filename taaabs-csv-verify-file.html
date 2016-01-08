@@ -1,0 +1,411 @@
+<!--
+  @Author: Rémi Casado
+-->
+
+
+<dom-module id="taaabs-csv-verify-file">
+  <template> </template>
+
+  <script>
+    /**
+    *`<taaabs-csv-verify-file>` is an element that check if a csv file is error free, according to its csv schema.
+    *
+    *Example:
+    *
+    *    var tcvf = new TaaabsCsvVerifyFile();
+    *    tcvf.verify( file, csvSchema, progressBar )
+    *      .then(function(data){
+    *        console.log(data);
+    *      })
+    *      .catch(function(data){
+    *        console.log(data)
+    *      }); 
+    */
+    TaaabsCsvVerifyFile = Polymer({
+      is: 'taaabs-csv-verify-file',
+
+      properties: {
+      
+        /**
+        *Tabular file to verify.
+        *
+        *@attribute file
+        *@type Object
+        */
+        file: {
+          type: Object,
+          notify: true,
+          value: function(){
+            return {};
+          }
+        },
+        
+        /**
+        *File status: `OK` if the file is valid, 
+        *`WARNING` for none fatal errors, 
+        *`ERROR` for fatal errors.
+        *
+        *@attribute _fileStatus
+        *@type Object
+        */
+        _fileStatus: {
+          type: String,
+          notify: true,
+          value: "OK"
+        },
+        
+        /**
+        *Current csv schema used/edited by the user.
+        *
+        *@attribute csvSchema
+        *@type Object
+        */
+        csvSchema: {
+          type: Object,
+          notify: true,
+          value: function(){
+            return {};
+          }
+        },
+        
+        /**
+        *List of errors in the `file`.
+        *
+        *An error is in the following format : 
+        *
+        *    {
+        *      "type":"ERROR" or "WARNING",
+        *      "description":<SOME_DESCRIPTION_OF_THE_ERROR>,
+        *      "line":<THE_INCORRECT_LINE_INDEX>,
+        *      "source":<THE_INCORRECT_LINE_CONTENT>
+        *    }
+        *
+        *@attribute _errors
+        *@type Array
+        */
+        _errors: {
+          type: Array,
+          notify: true,
+          value: function(){
+            return [];
+          }
+        },
+        
+        /**
+        *Default value of the length of a "slice" of the file, in byte.
+        *
+        *@attribute fileSliceSize
+        *@type Number
+        */
+        fileSliceSize: {
+          type: Number,
+          notify: true,
+          value: 1000000
+        },
+        
+        /**
+        *{!Optionnal} `paper-progress` element.
+        *
+        *@attribute progressBar
+        *@type Object
+        */
+        progressBar: {
+          type: Object,
+          notify: true,
+          value: function(){
+            return {}
+          }
+        },
+        
+        /**
+        *String corresponding to the currently verified line number from the csv file.
+        *
+        *@attribute _currentLine
+        *@type Number
+        */
+        _currentLine: {
+          type: Number,
+          notify: true,
+          value: 0
+        },
+        
+        /**
+        *String corresponding to the remains of the last line of a slice.
+        *
+        *@attribute _remains
+        *@type String
+        */
+        _remains: {
+          type: String,
+          notify: true,
+          value: ""
+        }
+      },
+
+      ready: function(){
+        
+      },
+      
+      /**
+      *Starts the verifying process.
+      *Returns a promise. Passes an object in the success function of the promise, which is in the following format :
+      *
+      *    {
+      *      "file": <THE_FILE_NAME>,
+      *      "level": <_FILESTATUS>,
+      *      "errors": <_ERRORS>
+      *    }
+      *
+      *@method verify
+      *
+      *@return A promise.
+      *
+      *@param {!optionnal} file The file to verify.
+      *@param {!optionnal} csvSchema The file csv schema.
+      *@param {!optionnal} progressBar A `paper-progress` element.
+      */
+      verify: function(file, csvSchema, progressBar){
+      
+        // Create a pointer to `this` for later.
+        var that = this;
+        
+        // Set `file`, `csvSChema` and `progressBar`.
+        that.file = file || that.file;
+        that.csvSchema = csvSchema || that.csvSchema;
+        that.progressBar = progressBar || that.progressBar;
+        
+        // Returns the promise.
+        return new Promise(function(resolve, reject) {
+          
+          // We get the `file` size.
+          var fileSize = that.file.size;
+          
+          // We calculate the number of slices we'll have.
+          var slicesCount = Math.floor( fileSize / that.fileSliceSize ) + 1;
+          
+          // We start verifying, from slice n°1.
+          that._goToNextSlice(1, slicesCount, that, resolve, reject);
+          
+        });
+      },
+      
+      /**
+      *Verifies the `parsedSample` from the slice `sliceIndex` of the `file`.
+      *Calls _goToNextSlice when its done.
+      *
+      *@method _verifySlice
+      *
+      *@param {!required} sliceIndex The slice index.
+      *@param {!required} slicesCount The total number of slices.
+      *@param {!required} parsedSample An array of the slice parsed.
+      *@param {!required} that The `<taaabs-csv-verify-file>`.
+      *@param {!required} resolve The promise resolve function.
+      *@param {!required} reject The promise reject function.
+      */
+      _verifySlice: function(sliceIndex, slicesCount, parsedSample, that, resolve, reject){
+        
+        // The index where to start verifying. 
+        // Set at '1' if we're on the first line of the file and it has column headers.
+        // Set at '0' otherwise.
+        var min = 0;
+        if( sliceIndex === 1 && that.csvSchema.columnHeader){
+          that._currentLine = that._currentLine + 1;
+          min = 1;
+        }
+        
+        // The index where to stop verifying. 
+        // Set before the end of file if we're on the last slice, in case the file has an empty last line.
+        var max = parsedSample.length;
+        if( sliceIndex === slicesCount )
+          max = max - 1;
+        
+        // We look for the `type` column index, for the verifying loop efficiency.
+        var typeColumn = -1;
+        for(var i = 0 ; i < that.csvSchema.columns.length; i++){
+          if(that.csvSchema.columns[i].ktbs.type === "type"){
+            typeColumn = i;
+          }
+        }
+        
+        // Loop on each line of the `pasedSample`.
+        for( var i = min; i < max; i++){
+          
+          // Increase `_currentLine`.
+          that._currentLine = that._currentLine + 1;
+          
+          // If we have as many columns as expected in the `csvSchema`, we'll loop on the cells of this line.
+          if( parsedSample[i].length === that.csvSchema.columns.length ){
+        
+            // The current obsel type.
+            // If some obsels type are defined in the `csvSchema`, 
+            // we check if this line obsel type exists in the `csvSChema`.
+            var typeObsel = undefined
+            if(typeColumn !== -1){
+              for(var j = 0; j < that.csvSchema.ktbs.obselTypes.length; j++){
+                if( that.csvSchema.ktbs.obselTypes[j].origin === parsedSample[i][typeColumn] )
+                  typeObsel = that.csvSchema.ktbs.obselTypes[j];
+              }
+            }
+            
+            // If the obsel type found on this line doesn't exist, we add the error.
+            if(typeObsel === undefined && typeColumn !== -1){
+              
+              // Set the file status as "ERROR".
+              that._fileStatus = "ERROR";
+              
+              // We put the current line content into `source`.
+              var source = "";
+              for(var k = 0; k < parsedSample[i].length-1; k++){
+                source = source + parsedSample[i][k]+";";
+              }
+              source = source + parsedSample[i][parsedSample[i].length-1];
+            
+              // We create the error Object and add it into `_errors`.
+              var err = {
+                "type":"ERROR",
+                "description":"Le type '"+parsedSample[i][typeColumn]+"' n'a pas été enregistré dans le schema du fichier de trace csv",
+                "line":that._currentLine,
+                "source":source
+              };
+              that.push('_errors',err);
+            }
+          
+            // We check for each cell of the current line.
+            for(var j = 0; j < parsedSample[i].length; j++){
+              
+              //TODO FINIR LES TESTS
+              
+            }
+              
+          }
+          
+          // If the current line do not have as many columns as it should, we add en error.
+          else{
+            
+            // Set the file status as "ERROR".
+            that._fileStatus = "ERROR";
+            
+            // We put the current line content into `source`.
+            var source = "";
+            for(var k = 0; k < parsedSample[i].length-1; k++){
+              source = source + parsedSample[i][k]+";";
+            }
+            source = source + parsedSample[i][parsedSample[i].length-1];
+            
+            // We create the error Object and add it into `_errors`.
+            var err = {
+              "type":"ERROR",
+              "description":"Le nombre de colonne n'est pas celui attendu.",
+              "line":that._currentLine,
+              "source":source
+            }
+            that.push('_errors',err);
+          }
+          
+          // If a `paper-progress` exists, we set it's value.
+          if(that.progressBar)
+            that.progressBar.value = ( (sliceIndex-1) * ( 100 / slicesCount ) ) 
+                                   + ( (( 100 / slicesCount ) / max)*i );
+        }
+        
+        // We increase the slice index.
+        sliceIndex = sliceIndex + 1;
+        
+        // We check the next slice.
+        that._goToNextSlice(sliceIndex, slicesCount, that, resolve, reject);
+      },
+      
+      /**
+      *Gets the slice at `sliceIndex` position from the current file, and calls the parser.
+      *Calls _verifySlice when the slice is parsed.
+      *
+      *@method _goToNextSlice
+      *
+      *@param {!required} sliceIndex The slice index.
+      *@param {!required} slicesCount The total number of slices.
+      *@param {!required} that The `<taaabs-csv-verify-file>`.
+      *@param {!required} resolve The promise resolve function.
+      *@param {!required} reject The promise reject function.
+      */
+      _goToNextSlice: function(sliceIndex, slicesCount, that, resolve, reject){
+      
+        // If we do not have checked the whole file yet.
+        if( sliceIndex <= slicesCount ){
+          
+          // The callback Object with return functions for the FileReader (see _getSlice)
+          var callback = {
+            onload :function(evt){
+            
+              // We use a new web worker.
+              // TODO : Find a way not to use absolute url.
+              var worker = new Worker('elements/taaabs-collector/csvToArray.js');
+              
+              // When the worker has finished
+              worker.addEventListener('message', function(e) {
+              
+                  // We remove the last line which might be incomplete, and save it for later.
+                  var parsedSample = e.data.splice(0,e.data.length-2);
+                  that._remains = "";
+                  for(var i = 0 ; i < e.data[e.data.length-1].length-1 ;i++){
+                    that._remains = that._remains+e.data[e.data.length-1][i]+';';
+                  }
+                  that._remains = that._remains+e.data[e.data.length-1][e.data[e.data.length-1].length-1];
+                  
+                  // We terminate the worker.
+                  worker.terminate();
+                  
+                  // We verify this parsed sample.
+                  that._verifySlice(sliceIndex, slicesCount, parsedSample,that, resolve, reject);
+                }, false);
+                
+              // We launch the web worker.  
+              var sData =  that._remains+evt.target.result;
+              worker.postMessage({strData: sData, strDelimiter: that.csvSchema.separator});
+            },
+            onerror: function(evt){ },
+            onprogress: function(evt){ }
+          };
+          
+          // Get the slice from the file.
+          that._getSlice(sliceIndex, that, callback);
+        }
+        
+        // If we have checked the whole file,
+        // we resolve the promise.
+        else{
+          var obj = {
+            "file": that.file.name,
+            "level":that._fileStatus,
+            "errors": that._errors
+          };
+          resolve(obj);
+        }
+      },
+      
+      /**
+      *Gets the slice at `sliceIndex` position from the current file.
+      *
+      *@method _getSlice
+      *
+      *@param {!required} sliceIndex The slice index.
+      *@param {!required} that The `<taaabs-csv-verify-file>`.
+      *@param {!required} callback The returns function Object for the FileReader.
+      */
+      _getSlice: function(sliceIndex, that, callback){
+        
+        // Get the slice from the file.
+        var slice = that.file.slice((sliceIndex-1)*that.fileSliceSize, sliceIndex*that.fileSliceSize);
+        
+        // Read the slice.
+        var reader = new FileReader();
+        reader.readAsText(slice, "ISO-8859-1");
+        reader.onprogress = callback.onprogress;
+        reader.onload = callback.onload;
+        reader.onerror = callback.onerror;
+      },
+      
+      
+    });
+  </script>
+
+</dom-module>

@@ -1,0 +1,27 @@
+{
+  "name": "taaabs-csv-verify-file",
+  "version": "1.0.0",
+  "description": "`<taaabs-csv-verify-file>` is an element that check if a csv file is error free, according to its csv schema.",
+  "keywords": [
+    "web-components",
+    "polymer",
+    "taaabs"
+  ],
+  "authors": [
+    "Rémi Casado"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TaaabsElements/taaabs-csv-verify-file.git"
+  },
+  "main": "taaabs-csv-verify-file.html",
+  "license": "https://github.com/TaaabsElements/taaabs-csv-verify-file/LICENSE",
+  "dependencies": {
+    "polymer": "polymer/polymer#^1.0.0"
+  },
+  "devDependencies": {
+    "iron-component-page": "polymerelements/iron-component-page#^1.0.0",
+    "webcomponentsjs": "webcomponents/webcomponentsjs#^0.7.0"
+  },
+  "ignore": []
+}
