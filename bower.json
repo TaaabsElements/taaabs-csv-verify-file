@@ -17,7 +17,7 @@
   "main": "taaabs-csv-verify-file.html",
   "license": "https://github.com/TaaabsElements/taaabs-csv-verify-file/LICENSE",
   "dependencies": {
-    "polymer": "polymer/polymer#^1.0.0"
+    "polymer": "Polymer/polymer#<2.*"
   },
   "devDependencies": {
     "iron-component-page": "polymerelements/iron-component-page#^1.0.0",
